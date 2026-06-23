@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>U.M.E.R. — Spatial Intelligence Engine</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #04040e;
+    color: #ccc;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #header {
+    padding: 10px 20px;
+    background: #08081a;
+    border-bottom: 1px solid #1a1a3a;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-shrink: 0;
+  }
+  #header h1 { font-size: 14px; color: #5fffb0; letter-spacing: 2px; }
+  #header p  { font-size: 11px; color: #556; }
+  .badge {
+    background: #0a1a0a;
+    border: 1px solid #2a4a2a;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: #5fffb0;
+  }
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+  canvas {
+    flex: 1 1 auto;
+    min-width: 0; 
+    display: block;
+  }
+  #panel {
+    width: 260px;
+    flex: 0 0 260px; 
+    background: #07070f;
+    border-left: 1px solid #1a1a2a;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+  }
+  .section-title {
+    font-size: 10px;
+    color: #4488aa;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    border-bottom: 1px solid #1a1a2a;
+    padding-bottom: 4px;
+  }
+  .metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    margin: 3px 0;
+  }
+  .metric-label { color: #556; }
+  .metric-value { color: #5fffb0; font-weight: bold; }
+  .metric-value.warn { color: #ffaa44; }
+  .metric-value.neutral { color: #aaaaff; }
+  #graph-canvas {
+    width: 100%;
+    height: 80px;
+    background: #050510;
+    border: 1px solid #1a1a2a;
+    border-radius: 3px;
+  }
+  .slider-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+  }
+  .slider-row label { color: #778; display: flex; justify-content: space-between; }
+  input[type=range] {
+    width: 100%;
+    accent-color: #5fffb0;
+    height: 4px;
+  }
+  button {
+    width: 100%;
+    padding: 7px;
+    background: #0a1a0a;
+    border: 1px solid #2a4a2a;
+    color: #5fffb0;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 3px;
+    letter-spacing: 1px;
+  }
+  button:hover { background: #0e220e; }
+  button.active { background: #1a3a1a; border-color: #5fffb0; }
+  #error-banner {
+    display: none;
+    padding: 20px;
+    background: #1a0a0a;
+    border: 1px solid #4a1a1a;
+    border-radius: 6px;
+    color: #ff8888;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 20px;
+  }
+  #loading {
+    position: absolute;
+    top: 50%;
+    left: 40%;
+    transform: translate(-50%, -50%);
+    color: #5fffb0;
+    font-size: 14px;
+    letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>⬡ U.M.E.R.</h1>
+  <p>Uniform Memory Encoded Representation — WebGPU Engine</p>
+  <span class="badge" id="gpu-badge">Detecting GPU...</span>
+  <span class="badge" id="mode-badge">Sort-Free Topology</span>
+</div>
+
+<div id="error-banner" id="err">
+  <strong>WebGPU not available.</strong><br><br>
+  This demo requires WebGPU, supported in Chrome 113+ / Edge 113+
+</div>
+
+<div id="main">
+  <canvas id="c"></canvas>
+  <div id="panel">
+    <div class="section-title">Live Telemetry</div>
+
+    <div class="metric"><span class="metric-label">Agents</span><span class="metric-value" id="m-n">—</span></div>
+    <div class="metric"><span class="metric-label">Buckets</span><span class="metric-value neutral" id="m-b">—</span></div>
+    <div class="metric"><span class="metric-label">Topology build</span><span class="metric-value" id="m-topo">—</span></div>
+    <div class="metric"><span class="metric-label">Render</span><span class="metric-value neutral" id="m-render">—</span></div>
+    <div class="metric"><span class="metric-label">FPS</span><span class="metric-value" id="m-fps">—</span></div>
+    <div class="metric"><span class="metric-label">Movers/frame</span><span class="metric-value warn" id="m-movers">—</span></div>
+    <div class="metric"><span class="metric-label">Ops saved</span><span class="metric-value" id="m-saved">—</span></div>
+
+    <canvas id="graph-canvas"></canvas>
+    
+    <div class="section-title">Scenarios</div>
+    <button id="btn-boids" class="active">Swarm / Boids</button>
+    <button id="btn-crowd">Black Friday Evacuation</button>
+    <button id="btn-predator">Predator vs. Prey</button>
+
+    <div class="section-title" style="margin-top:10px;">Controls</div>
+
+    <div class="slider-row">
+      <label>Particle count <span id="n-val">500K</span></label>
+      <input type="range" id="n-slider" min="1" max="10" step="1" value="5">
+    </div>
+
+    <button id="btn-mode">Mode: Temporal Coherence ✓</button>
+
+    <div class="section-title" style="margin-top:10px;">Architecture</div>
+    <div style="font-size:10px; color:#445; line-height:1.8;">
+      Shaders: WGSL Compute<br>
+      No CPU round-trips<br>
+      L2-resident histogram<br>
+      Sort-free O(N) topology
+    </div>
+  </div>
+</div>
+
+<div id="loading">Initialising WebGPU...</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// WGSL SHADERS (Unified 32-Byte Params for perfect alignment)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const WGSL_HASH_HISTOGRAM = /* wgsl */`
+struct Params { n: u32, buckets: u32, mask: u32, dt: f32, mode: u32, p1: u32, p2: u32, p3: u32 }
+@group(0) @binding(0) var<storage, read>       pos    : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> hist   : array<atomic<i32>>;
+@group(0) @binding(2) var<storage, read_write> prevH  : array<i32>;
+@group(0) @binding(3) var<uniform>             params : Params;
+
+fn hash3d(x: f32, y: f32, z: f32, mask: u32) -> i32 {
+  let cx = i32(x / 90.0); let cy = i32(y / 90.0); let cz = i32(z / 90.0);
+  return ((cx * 73856093) ^ (cy * 19349663) ^ (cz * 83492791)) & i32(mask);
+}
+
+@compute @workgroup_size(256)
+fn full_histogram(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= params.n) { return; }
+  let p = pos[i];
+  let h = hash3d(p.x, p.y, p.z, params.mask);
+  atomicAdd(&hist[h], 1);
+  prevH[i] = h;
+}
+`;
+
+const WGSL_DELTA_HISTOGRAM = /* wgsl */`
+struct Params { n: u32, buckets: u32, mask: u32, dt: f32, mode: u32, p1: u32, p2: u32, p3: u32 }
+@group(0) @binding(0) var<storage, read>       pos      : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> hist     : array<atomic<i32>>;
+@group(0) @binding(2) var<storage, read_write> prevH    : array<i32>;
+@group(0) @binding(3) var<storage, read_write> isMover  : array<i32>;
+@group(0) @binding(4) var<storage, read_write> moverCnt : array<atomic<i32>>;
+@group(0) @binding(5) var<uniform>             params   : Params;
+
+fn hash3d(x: f32, y: f32, z: f32, mask: u32) -> i32 {
+  let cx = i32(x / 90.0); let cy = i32(y / 90.0); let cz = i32(z / 90.0);
+  return ((cx * 73856093) ^ (cy * 19349663) ^ (cz * 83492791)) & i32(mask);
+}
+
+@compute @workgroup_size(256)
+fn delta_histogram(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= params.n) { return; }
+  let p    = pos[i];
+  let newH = hash3d(p.x, p.y, p.z, params.mask);
+  let oldH = prevH[i];
+  if (newH == oldH) { isMover[i] = 0; return; }
+  atomicAdd(&hist[oldH], -1);
+  atomicAdd(&hist[newH],  1);
+  prevH[i]   = newH;
+  isMover[i] = 1;
+  atomicAdd(&moverCnt[0], 1);
+}
+`;
+
+const WGSL_SCAN = /* wgsl */`
+struct ScanParams { n: u32 }
+@group(0) @binding(0) var<storage, read>       src    : array<i32>;
+@group(0) @binding(1) var<storage, read_write> dst    : array<i32>;
+@group(0) @binding(2) var<storage, read_write> bsums  : array<i32>;
+@group(0) @binding(3) var<uniform>             params : ScanParams;
+var<workgroup> smem: array<i32, 256>;
+
+@compute @workgroup_size(256)
+fn scan_blocks(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(local_invocation_id)  lid: vec3<u32>,
+  @builtin(workgroup_id)         wid: vec3<u32>
+) {
+  let tid = lid.x; let gIdx = gid.x;
+  smem[tid] = select(0, src[gIdx], gIdx < params.n);
+  workgroupBarrier();
+  for (var s: u32 = 1u; s < 256u; s <<= 1u) {
+    let idx2 = (tid + 1u) * (s << 1u) - 1u;
+    if (idx2 < 256u) { smem[idx2] += smem[idx2 - s]; }
+    workgroupBarrier();
+  }
+  if (tid == 255u) { bsums[wid.x] = smem[255]; smem[255] = 0; }
+  workgroupBarrier();
+  for (var s: u32 = 128u; s > 0u; s >>= 1u) {
+    let idx2 = (tid + 1u) * (s << 1u) - 1u;
+    if (idx2 < 256u) {
+      let t = smem[idx2 - s]; smem[idx2 - s] = smem[idx2]; smem[idx2] += t;
+    }
+    workgroupBarrier();
+  }
+  if (gIdx < params.n) { dst[gIdx] = smem[tid]; }
+}
+`;
+
+const WGSL_ADD_OFFSETS = /* wgsl */`
+struct P { n: u32 }
+@group(0) @binding(0) var<storage, read_write> data : array<i32>;
+@group(0) @binding(1) var<storage, read>       offs : array<i32>;
+@group(0) @binding(2) var<uniform>             p    : P;
+@compute @workgroup_size(256)
+fn add_offsets(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>) {
+  let i = gid.x;
+  if (i < p.n) { data[i] += offs[wid.x]; }
+}
+`;
+
+const WGSL_SCATTER = /* wgsl */`
+struct Params { n: u32, buckets: u32, mask: u32, dt: f32, mode: u32, p1: u32, p2: u32, p3: u32 }
+@group(0) @binding(0) var<storage, read>       posIn   : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read>       velIn   : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read>       isMover : array<i32>;
+@group(0) @binding(3) var<storage, read>       offsets : array<i32>;
+@group(0) @binding(4) var<storage, read_write> locCnt  : array<atomic<i32>>;
+@group(0) @binding(5) var<storage, read_write> posOut  : array<vec4<f32>>;
+@group(0) @binding(6) var<storage, read_write> velOut  : array<vec4<f32>>;
+@group(0) @binding(7) var<uniform>             params  : Params;
+
+fn hash3d(x: f32, y: f32, z: f32, mask: u32) -> i32 {
+  let cx = i32(x / 90.0); let cy = i32(y / 90.0); let cz = i32(z / 90.0);
+  return ((cx * 73856093) ^ (cy * 19349663) ^ (cz * 83492791)) & i32(mask);
+}
+
+@compute @workgroup_size(256)
+fn scatter_movers(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= params.n) { return; }
+  if (isMover[i] == 0) { return; }
+  let p = posIn[i]; let v = velIn[i];
+  let h = hash3d(p.x, p.y, p.z, params.mask);
+  let slot = offsets[h] + atomicAdd(&locCnt[h], 1);
+  posOut[slot] = p; velOut[slot] = v;
+}
+
+@compute @workgroup_size(256)
+fn scatter_full(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= params.n) { return; }
+  let dummy = isMover[i]; 
+  let p = posIn[i]; let v = velIn[i];
+  let h = hash3d(p.x, p.y, p.z, params.mask);
+  let slot = offsets[h] + atomicAdd(&locCnt[h], 1);
+  posOut[slot] = p; 
+  velOut[slot] = v + vec4<f32>(f32(dummy) * 0.0); 
+}
+`;
+
+const WGSL_MOTION = /* wgsl */`
+struct Params { n: u32, buckets: u32, mask: u32, dt: f32, mode: u32, p1: u32, p2: u32, p3: u32 }
+@group(0) @binding(0) var<storage, read_write> pos    : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> vel    : array<vec4<f32>>;
+@group(0) @binding(2) var<uniform>             params : Params;
+
+@compute @workgroup_size(256)
+fn apply_motion(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= params.n) { return; }
+  var p = pos[i]; var v = vel[i];
+  
+  v.x = clamp(v.x, -50.0, 50.0); v.y = clamp(v.y, -50.0, 50.0); v.z = clamp(v.z, -50.0, 50.0);
+  p.x += v.x * params.dt; p.y += v.y * params.dt; p.z += v.z * params.dt;
+  
+  if (p.x < 0.0) { p.x = 0.0; v.x *= -1.0; }
+  if (p.x > 1000.0) { p.x = 1000.0; v.x *= -1.0; }
+  if (p.y < 0.0) { p.y = 0.0; v.y *= -1.0; }
+  if (p.y > 1000.0) { p.y = 1000.0; v.y *= -1.0; }
+  if (p.z < 0.0) { p.z = 0.0; v.z *= -1.0; }
+  if (p.z > 1000.0) { p.z = 1000.0; v.z *= -1.0; }
+  
+  pos[i] = p; vel[i] = v;
+}
+`;
+
+const WGSL_NAVIGATE = /* wgsl */`
+struct Params { n: u32, buckets: u32, mask: u32, dt: f32, mode: u32, p1: u32, p2: u32, p3: u32 }
+@group(0) @binding(0) var<storage, read>       pos    : array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read_write> vel    : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read>       offs   : array<i32>;
+@group(0) @binding(3) var<storage, read>       loc    : array<i32>;
+@group(0) @binding(4) var<storage, read>       posOut : array<vec4<f32>>;
+@group(0) @binding(5) var<storage, read>       velOut : array<vec4<f32>>;
+@group(0) @binding(6) var<uniform>             params : Params;
+
+@compute @workgroup_size(256)
+fn navigate(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.x;
+  if (i >= params.n) { return; }
+
+  let p       = pos[i];
+  var v       = vel[i];
+  var my_type = v.w;
+
+  // Cell coords using same 90.0 as all other shaders
+  let cx = i32(p.x / 90.0);
+  let cy = i32(p.y / 90.0);
+  let cz = i32(p.z / 90.0);
+
+  // Declare ALL accumulators up front (WGSL requires this)
+  var force  = vec3<f32>(0.0);
+  var sep    = vec3<f32>(0.0);
+  var align  = vec3<f32>(0.0);
+  var coh    = vec3<f32>(0.0);
+  var num    = 0.0;
+  var flee   = vec3<f32>(0.0);
+  var ch     = vec3<f32>(0.0);
+  var pk     = vec3<f32>(0.0);
+  var fa     = vec3<f32>(0.0);
+  var fc     = vec3<f32>(0.0);
+  var f_n    = 0.0;
+  var nearD  = 99999.0;
+
+  // 3x3 neighborhood — checks all 9 adjacent cells so no grid artifact
+  for (var nx: i32 = cx - 1; nx <= cx + 1; nx++) {
+    for (var ny: i32 = cy - 1; ny <= cy + 1; ny++) {
+      let nh        = ((nx * 73856093) ^ (ny * 19349663) ^ (cz * 83492791)) & i32(params.mask);
+      let start_idx = offs[nh];
+      let count     = loc[nh];
+
+      for (var j: i32 = 0; j < count && j < 32; j++) {
+        let n_idx = start_idx + j;
+        if (n_idx == i32(i)) { continue; }
+
+        let np    = posOut[n_idx];
+        let nv    = velOut[n_idx];
+        let diff  = p.xyz - np.xyz;
+        let dist2 = dot(diff, diff);
+
+        // ── MODE 0: BOIDS ──
+        if (params.mode == 0u && dist2 > 0.001) {
+          let dist   = sqrt(dist2);
+          let n_type = nv.w;
+          if (my_type == n_type && dist2 < 55.0 * 55.0) {
+            sep   += (diff / dist) * (1.0 - dist / 55.0) * 14.0;
+            align += nv.xyz;
+            coh   += np.xyz;
+            num   += 1.0;
+          } else if (my_type != n_type && dist2 < 28.0 * 28.0) {
+            sep += (diff / dist) * (1.0 - dist / 28.0) * 90.0;
+          }
+
+        // ── MODE 1: EVACUATION ──
+        } else if (params.mode == 1u && dist2 > 0.001 && dist2 < 14.0 * 14.0) {
+          let dist = sqrt(dist2);
+          force += (diff / dist) * (1.0 - dist / 14.0) * 60.0;
+
+        // ── MODE 2: WOLF HUNT ──
+        } else if (params.mode == 2u && dist2 > 0.001 && dist2 < 80.0 * 80.0) {
+          let dist   = sqrt(dist2);
+          let n_type = nv.w;
+          if (my_type == 0.0) {
+            if (n_type == 1.0 && dist < 62.0) {
+              flee += (diff / dist) * ((62.0 * 62.0) / max(dist2, 4.0)) * 18.0;
+            } else if (n_type == 0.0 && dist < 40.0) {
+              fa += nv.xyz; fc += np.xyz; f_n += 1.0;
+              if (dist < 14.0) { flee += (diff / dist) * (1.0 - dist / 14.0) * 8.0; }
+            }
+            if (n_type == 1.0 && dist < 6.0) { my_type = 1.0; }
+          } else {
+            if (n_type == 0.0 && dist < nearD) {
+              nearD = dist; ch = (np.xyz - p.xyz) / dist;
+            } else if (n_type == 1.0 && dist < 32.0) {
+              pk += (diff / dist) * (1.0 - dist / 32.0) * 12.0;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ── Apply forces ──
+  if (params.mode == 0u) {
+    force = sep;
+    if (num > 0.0) { force += (align / num) * 0.65 + ((coh / num) - p.xyz) * 0.14; }
+    v.x += force.x * params.dt; v.y += force.y * params.dt; v.z += force.z * params.dt;
+    let sp = length(v.xyz); var d = v.xyz;
+    if (sp > 0.001) { d = v.xyz / sp; }
+    v = vec4<f32>(d * clamp(sp, 5.0, 20.0), my_type);
+
+  } else if (params.mode == 1u) {
+    let etgt = vec3<f32>(960.0, 500.0, 500.0);
+    force += ((etgt - p.xyz) / (distance(p.xyz, etgt) + 0.001)) * 13.0;
+    let o1 = vec3<f32>(400.0, 380.0, 500.0);
+    let o2 = vec3<f32>(400.0, 620.0, 500.0);
+    let o3 = vec3<f32>(600.0, 500.0, 500.0);
+    if (distance(p.xyz, o1) < 95.0) { force += normalize(p.xyz - o1) * 130.0; }
+    if (distance(p.xyz, o2) < 95.0) { force += normalize(p.xyz - o2) * 130.0; }
+    if (distance(p.xyz, o3) < 95.0) { force += normalize(p.xyz - o3) * 130.0; }
+    v.x += force.x * params.dt; v.y += force.y * params.dt; v.z += force.z * params.dt;
+    v.x *= 0.97; v.y *= 0.97; v.z *= 0.97;
+
+  } else if (params.mode == 2u) {
+    if (my_type == 0.0) {
+      force = flee;
+      if (f_n > 0.0) { force += (fa / f_n) * 0.40 + ((fc / f_n) - p.xyz) * 0.08; }
+      v.x += force.x * params.dt; v.y += force.y * params.dt; v.z += force.z * params.dt;
+      let sp = length(v.xyz); var d = v.xyz; if (sp > 0.001) { d = v.xyz / sp; }
+      v = vec4<f32>(d * clamp(sp, 2.0, 24.0), my_type);
+    } else {
+      force = ch * 265.0 + pk;
+      v.x += force.x * params.dt; v.y += force.y * params.dt; v.z += force.z * params.dt;
+      let sp = length(v.xyz); var d = v.xyz; if (sp > 0.001) { d = v.xyz / sp; }
+      v = vec4<f32>(d * clamp(sp, 16.0, 58.0), my_type);
+    }
+  }
+
+  vel[i] = v;
+}
+`;
+const WGSL_RENDER_VERT = /* wgsl */`
+@group(0) @binding(0) var<storage, read> pos: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> vel: array<vec4<f32>>;
+
+struct VO {
+  @builtin(position) pos: vec4<f32>,
+  @location(0)       spd: f32,
+  @location(1)       vtype: f32,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vi: u32) -> VO {
+  let p = pos[vi];
+  let x = (p.x / 500.0) - 1.0;
+  let y = (p.y / 500.0) - 1.0;
+  let v = vel[vi];
+  return VO(vec4<f32>(x, y, 0.0, 1.0), length(v.xyz), v.w);
+}
+`;
+
+const WGSL_RENDER_FRAG = /* wgsl */`
+fn groupCol(g: f32) -> vec3<f32> {
+  let gi = i32(round(g)) % 8;
+  if (gi == 0) { return vec3<f32>(1.00, 0.20, 0.20); }
+  if (gi == 1) { return vec3<f32>(1.00, 0.58, 0.06); }
+  if (gi == 2) { return vec3<f32>(0.95, 0.95, 0.08); }
+  if (gi == 3) { return vec3<f32>(0.12, 1.00, 0.28); }
+  if (gi == 4) { return vec3<f32>(0.04, 0.84, 1.00); }
+  if (gi == 5) { return vec3<f32>(0.28, 0.38, 1.00); }
+  if (gi == 6) { return vec3<f32>(0.90, 0.12, 1.00); }
+  return vec3<f32>(1.00, 0.36, 0.80);
+}
+
+@fragment
+fn fs_main(in: VO) -> @location(0) vec4<f32> {
+  // 1. Predator (Wolf) = Bright Red/Orange scaling with speed
+  if (in.vtype == 1.0) {
+      let heat = clamp(in.spd / 25.0, 0.0, 1.0);
+      return vec4<f32>(1.0, 0.12 + heat * 0.38, 0.0, 1.0);
+  }
+  
+  // 2. Swarm Flocking = 8 Distinct Groups
+  if (in.vtype >= 2.0) {
+      return vec4<f32>(groupCol(in.vtype), 0.90);
+  }
+  
+  // 3. Prey / Crowd = Cyan fading to panic yellow/white at high speeds
+  let t = clamp(in.spd / 15.0, 0.0, 1.0);
+  return vec4<f32>(t * 0.9, 0.5 + t * 0.5, 1.0 - t * 0.85, 0.88);
+}
+`;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════════════════════
+async function main() {
+  const loading = document.getElementById('loading');
+  const errBanner = document.getElementById('error-banner');
+
+  if (!navigator.gpu) {
+    loading.style.display = 'none';
+    errBanner.style.display = 'block';
+    return;
+  }
+
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter) {
+    loading.style.display = 'none';
+    errBanner.style.display = 'block';
+    return;
+  }
+
+  //const reqFeatures = adapter.features.has('timestamp-query') ? ['timestamp-query'] : [];
+  const device = await adapter.requestDevice({
+    requiredFeatures: [], // Empty array = no special overhead features requested
+    requiredLimits: {
+      maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+      maxBufferSize: adapter.limits.maxBufferSize,
+    }
+  });
+
+  document.getElementById('gpu-badge').textContent = (adapter.info || {}).description || 'WebGPU Active';
+  loading.style.display = 'none';
+
+  const canvas  = document.getElementById('c');
+  const ctx     = canvas.getContext('webgpu');
+  const fmt     = navigator.gpu.getPreferredCanvasFormat();
+  function resize() {
+    canvas.width  = canvas.clientWidth  * devicePixelRatio;
+    canvas.height = canvas.clientHeight * devicePixelRatio;
+    ctx.configure({ device, format: fmt, alphaMode: 'opaque' });
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function mkCompute(code, entry) {
+    return device.createComputePipeline({
+      layout: 'auto', compute: { module: device.createShaderModule({ code }), entryPoint: entry }
+    });
+  }
+
+  const pp_fullHist  = mkCompute(WGSL_HASH_HISTOGRAM, 'full_histogram');
+  const pp_deltaHist = mkCompute(WGSL_DELTA_HISTOGRAM, 'delta_histogram');
+  const pp_scan      = mkCompute(WGSL_SCAN, 'scan_blocks');
+  const pp_addOff    = mkCompute(WGSL_ADD_OFFSETS, 'add_offsets');
+  const pp_scatFull  = mkCompute(WGSL_SCATTER, 'scatter_full');
+  const pp_scatMov   = mkCompute(WGSL_SCATTER, 'scatter_movers');
+  const pp_motion    = mkCompute(WGSL_MOTION, 'apply_motion');
+  const pp_navigate  = mkCompute(WGSL_NAVIGATE, 'navigate');
+
+  const renderModule = device.createShaderModule({ code: WGSL_RENDER_VERT + '\n' + WGSL_RENDER_FRAG });
+  const pp_render = device.createRenderPipeline({
+    layout: 'auto',
+    vertex:    { module: renderModule, entryPoint: 'vs_main' },
+    fragment:  { module: renderModule, entryPoint: 'fs_main',
+                 targets: [{ format: fmt,
+                   blend: { color: { srcFactor:'src-alpha', dstFactor:'one-minus-src-alpha' },
+                            alpha: { srcFactor:'one', dstFactor:'zero' } } }] },
+    primitive: { topology: 'point-list' },
+  });
+
+  const N_OPTIONS = [100000,200000,300000,400000,500000,600000,700000,800000,900000,1000000];
+  let N       = 500000;
+  let BUCKETS = 65536; 
+  let MASK    = BUCKETS - 1;
+  let useCoherence = true;
+  let totalSaved   = 0;
+  let frameCount   = 0;
+  let currentScenario = 0; 
+  let bufs = null;
+  let currentRunId = 0; // Telemetry Lock ID
+
+  function initBuffers() {
+    if (bufs) { Object.values(bufs).forEach(b => { if (b && b.destroy) b.destroy(); }); }
+    totalSaved = 0;
+    frameCount = 0;
+    currentRunId++; // Lock out old telemetry reads
+
+    const F4 = N * 4 * 4;
+    const I4 = BUCKETS * 4;
+    const L1 = Math.ceil(BUCKETS / 256);
+    const L2 = Math.ceil(L1 / 256);
+
+    const posData = new Float32Array(N * 4);
+    const velData = new Float32Array(N * 4);
+    for (let i = 0; i < N; i++) {
+      if (currentScenario === 0) {
+        // Script A's beautiful ring formations
+        const g   = Math.floor(Math.random() * 8);
+        const ang = (g / 8) * Math.PI * 2 + (Math.random() - 0.5) * 0.7;
+        const r   = 220 + (Math.random() - 0.5) * 110;
+        posData[i*4+0] = Math.max(30, Math.min(970, 500 + Math.cos(ang)*r + (Math.random()-0.5)*80));
+        posData[i*4+1] = Math.max(30, Math.min(970, 500 + Math.sin(ang)*r + (Math.random()-0.5)*80));
+        posData[i*4+2] = 500.0; // Keep flat for 2D flocking feel
+        posData[i*4+3] = 0;
+        
+        const spd = 8 + Math.random() * 6;
+        const a   = Math.random() * Math.PI * 2;
+        velData[i*4+0] = Math.cos(a)*spd;
+        velData[i*4+1] = Math.sin(a)*spd;
+        velData[i*4+2] = 0.0;
+        velData[i*4+3] = g + 2.0; // Offset by 2 for the fragment shader groups
+
+      } else if (currentScenario === 1) {
+        posData[i*4+0] = Math.random() * 220 + 20;   
+        posData[i*4+1] = Math.random() * 860 + 70;  
+        posData[i*4+2] = 500.0;  
+        posData[i*4+3] = 0;
+        
+        velData[i*4+0] = (Math.random()-0.5) * 4.0;
+        velData[i*4+1] = (Math.random()-0.5) * 4.0;
+        velData[i*4+2] = 0.0;
+        velData[i*4+3] = 0.0; 
+
+      } else {
+        // Script A's Wolf/Sheep Hunt logic
+        if (Math.random() < 0.05) {
+          const c = Math.floor(Math.random()*4);
+          posData[i*4+0] = (c&1) ? 870+Math.random()*80 : 50+Math.random()*80;
+          posData[i*4+1] = (c&2) ? 870+Math.random()*80 : 50+Math.random()*80;
+          posData[i*4+2] = 500.0;
+          posData[i*4+3] = 0;
+          
+          const dx = 500-posData[i*4+0];
+          const dy = 500-posData[i*4+1];
+          const d  = Math.sqrt(dx*dx+dy*dy);
+          velData[i*4+0] = (dx/d)*22+(Math.random()-0.5)*6;
+          velData[i*4+1] = (dy/d)*22+(Math.random()-0.5)*6;
+          velData[i*4+2] = 0.0;
+          velData[i*4+3] = 1.0; // Wolf
+        } else {
+          posData[i*4+0] = 180+Math.random()*640; 
+          posData[i*4+1] = 180+Math.random()*640;
+          posData[i*4+2] = 500.0;
+          posData[i*4+3] = 0;
+
+          velData[i*4+0] = (Math.random()-0.5)*7.0; 
+          velData[i*4+1] = (Math.random()-0.5)*7.0; 
+          velData[i*4+2] = 0.0;
+          velData[i*4+3] = 0.0; // Sheep
+        }
+      }
+    }
+
+    function mkBuf(size, usage, data=null) {
+      const b = device.createBuffer({ size: Math.max(size,4), usage, mappedAtCreation: !!data });
+      if (data) { new Float32Array(b.getMappedRange()).set(data); b.unmap(); }
+      return b;
+    }
+
+    const SU = GPUBufferUsage;
+    const pos   = mkBuf(F4, SU.STORAGE|SU.COPY_DST|SU.COPY_SRC, posData);
+    const vel   = mkBuf(F4, SU.STORAGE|SU.COPY_DST, velData);
+    const posOut= mkBuf(F4, SU.STORAGE|SU.COPY_DST);
+    const velOut= mkBuf(F4, SU.STORAGE|SU.COPY_DST);
+    const hist  = mkBuf(I4, SU.STORAGE|SU.COPY_DST);
+    const offs  = mkBuf(I4, SU.STORAGE|SU.COPY_DST);
+    const loc   = mkBuf(I4, SU.STORAGE|SU.COPY_DST);
+    const prevH = mkBuf(N*4, SU.STORAGE|SU.COPY_DST);
+    const ismov = mkBuf(N*4, SU.STORAGE|SU.COPY_DST);
+    const mcnt  = mkBuf(4,   SU.STORAGE|SU.COPY_DST|SU.COPY_SRC);
+    const mcntRead = mkBuf(4, SU.COPY_DST|SU.MAP_READ);
+    const L1buf = mkBuf(Math.max(L1*4,4), SU.STORAGE|SU.COPY_DST);
+    const L2buf = mkBuf(Math.max(L2*4,4), SU.STORAGE|SU.COPY_DST);
+    const L2out = mkBuf(Math.max(L1*4,4), SU.STORAGE|SU.COPY_DST);
+    const L3out = mkBuf(Math.max(L2*4,4), SU.STORAGE|SU.COPY_DST);
+    const dum   = mkBuf(4,   SU.STORAGE|SU.COPY_DST);
+
+    const paramsArr = new ArrayBuffer(32);
+    const paramsU32 = new Uint32Array(paramsArr);
+    const paramsF32 = new Float32Array(paramsArr);
+    paramsU32[0]=N; paramsU32[1]=BUCKETS; paramsU32[2]=MASK; paramsF32[3]=0.05;
+    paramsU32[4]=currentScenario; 
+    const uParams = device.createBuffer({size:32, usage:SU.UNIFORM|SU.COPY_DST});
+
+    const uScanB = n => {
+      const b = device.createBuffer({size:4, usage:SU.UNIFORM|SU.COPY_DST, mappedAtCreation:true});
+      new Uint32Array(b.getMappedRange())[0] = n;
+      b.unmap(); return b;
+    };
+    const uScanBuckets = uScanB(BUCKETS);
+    const uScanL1      = uScanB(L1);
+    const uScanL2      = uScanB(L2);
+    const uAddL1       = uScanB(L1);
+    const uAddBuckets  = uScanB(BUCKETS);
+    const uScatter     = device.createBuffer({size:32, usage:SU.UNIFORM|SU.COPY_DST, mappedAtCreation:true});
+    new Uint32Array(uScatter.getMappedRange()).set([N, MASK]);
+    uScatter.unmap();
+
+    const uMotion = device.createBuffer({size:32, usage:SU.UNIFORM|SU.COPY_DST, mappedAtCreation:true});
+    const motionMapped = uMotion.getMappedRange(); 
+    new Uint32Array(motionMapped)[0] = N;
+    new Float32Array(motionMapped)[3] = 0.05;
+    uMotion.unmap(); 
+
+    bufs = {
+      pos,vel,posOut,velOut,hist,offs,loc,prevH,ismov,mcnt,mcntRead,
+      L1buf,L2buf,L2out,L3out,dum,
+      uParams,uScanBuckets,uScanL1,uScanL2,uAddL1,uAddBuckets,
+      uScatter,uMotion,
+      L1,L2, paramsArr
+    };
+    device.queue.writeBuffer(uParams, 0, paramsArr);
+  }
+
+  function bg(pipeline, ...entries) {
+    return device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: entries.map((resource, binding) => ({ binding, resource: {buffer:resource} }))
+    });
+  }
+
+  initBuffers();
+
+  const graphCanvas = document.getElementById('graph-canvas');
+  const gctx        = graphCanvas.getContext('2d');
+  graphCanvas.width  = graphCanvas.clientWidth;
+  graphCanvas.height = graphCanvas.clientHeight;
+  const topoHist = [];
+  const WARP_REF  = 1.063; 
+
+  function drawGraph() {
+    const w = graphCanvas.width, h = graphCanvas.height;
+    gctx.fillStyle = '#050510'; gctx.fillRect(0,0,w,h);
+    if (topoHist.length < 2) return;
+    const mx = Math.max(Math.max(...topoHist), WARP_REF * 1.5, 0.5);
+    const wy = h - (WARP_REF / mx * h);
+    gctx.strokeStyle = '#6666ff'; gctx.setLineDash([4,3]); gctx.lineWidth = 1;
+    gctx.beginPath(); gctx.moveTo(0,wy); gctx.lineTo(w,wy); gctx.stroke(); gctx.setLineDash([]);
+    gctx.fillStyle = '#6666ff'; gctx.font = '8px monospace'; gctx.fillText('Warp', 2, wy-2);
+    gctx.strokeStyle = '#5fffb0'; gctx.lineWidth = 1.5; gctx.beginPath();
+    const recent = topoHist.slice(-100);
+    recent.forEach((t,i) => {
+      const x = i / 99 * w; const y = h - (t / mx * h);
+      i === 0 ? gctx.moveTo(x,y) : gctx.lineTo(x,y);
+    });
+    gctx.stroke();
+  }
+
+  let lastTime  = performance.now();
+  let fps       = 0;
+  let topoMs    = 0;
+  let moverCount = 0;
+  let moverReadPending = false;
+
+  async function frame(now) {
+    const dt = now - lastTime;
+    lastTime = now;
+    fps = 0.9 * fps + 0.1 * (1000 / Math.max(dt, 1));
+    frameCount++;
+
+    const b = bufs;
+    const enc = device.createCommandEncoder();
+
+    {
+      const pass = enc.beginComputePass();
+      pass.setPipeline(pp_motion);
+      pass.setBindGroup(0, bg(pp_motion, b.pos, b.vel, b.uMotion));
+      pass.dispatchWorkgroups(Math.ceil(N/256));
+      pass.end();
+    }
+
+    enc.clearBuffer(b.loc); 
+    if (frameCount === 1 || !useCoherence) {
+      enc.clearBuffer(b.hist); 
+      enc.clearBuffer(b.ismov);
+    } else {
+      enc.clearBuffer(b.mcnt); 
+    }
+
+    const t0 = performance.now();
+    {
+      const pass = enc.beginComputePass(); 
+      if (frameCount === 1 || !useCoherence) {
+        pass.setPipeline(pp_fullHist);
+        pass.setBindGroup(0, bg(pp_fullHist, b.pos, b.hist, b.prevH, b.uParams));
+      } else {
+        pass.setPipeline(pp_deltaHist);
+        pass.setBindGroup(0, bg(pp_deltaHist, b.pos, b.hist, b.prevH, b.ismov, b.mcnt, b.uParams));
+      }
+      pass.dispatchWorkgroups(Math.ceil(N/256));
+      pass.end(); 
+    }
+
+    {
+      const pass = enc.beginComputePass();
+      pass.setPipeline(pp_scan);
+      pass.setBindGroup(0, bg(pp_scan, b.hist, b.offs, b.L1buf, b.uScanBuckets)); pass.dispatchWorkgroups(b.L1);
+      pass.setBindGroup(0, bg(pp_scan, b.L1buf, b.L2out, b.L2buf, b.uScanL1)); pass.dispatchWorkgroups(b.L2);
+      pass.setBindGroup(0, bg(pp_scan, b.L2buf, b.L3out, b.dum, b.uScanL2)); pass.dispatchWorkgroups(1);
+      pass.end();
+
+      const pass2 = enc.beginComputePass();
+      pass2.setPipeline(pp_addOff);
+      pass2.setBindGroup(0, bg(pp_addOff, b.L2out, b.L3out, b.uAddL1)); pass2.dispatchWorkgroups(b.L2);
+      pass2.setBindGroup(0, bg(pp_addOff, b.offs, b.L2out, b.uAddBuckets)); pass2.dispatchWorkgroups(b.L1);
+      pass2.end();
+    }
+
+    {
+      const pass = enc.beginComputePass();
+      pass.setPipeline(pp_scatFull); 
+      pass.setBindGroup(0, bg(pp_scatFull, b.pos, b.vel, b.ismov, b.offs, b.loc, b.posOut, b.velOut, b.uParams));
+      pass.dispatchWorkgroups(Math.ceil(N/256));
+      pass.end();
+    }
+    
+    {
+      const pass = enc.beginComputePass();
+      pass.setPipeline(pp_navigate);
+      pass.setBindGroup(0, bg(pp_navigate, b.pos, b.vel, b.offs, b.loc, b.posOut, b.velOut, b.uParams));
+      pass.dispatchWorkgroups(Math.ceil(N/256));
+      pass.end();
+    }
+
+    const renderBG = device.createBindGroup({
+      layout: pp_render.getBindGroupLayout(0),
+      entries: [ { binding:0, resource:{buffer:b.pos} }, { binding:1, resource:{buffer:b.vel} } ]
+    });
+
+    const rpass = enc.beginRenderPass({
+      colorAttachments: [{
+        view: ctx.getCurrentTexture().createView(), loadOp: 'clear',
+        clearValue: { r:0.02, g:0.02, b:0.06, a:1 }, storeOp: 'store'
+      }]
+    });
+    rpass.setPipeline(pp_render);
+    rpass.setBindGroup(0, renderBG);
+    rpass.draw(N);
+    rpass.end();
+    // --- OLD STALLING CODE ---
+    /*	
+    if (useCoherence && !moverReadPending && frameCount > 1) {
+      enc.copyBufferToBuffer(b.mcnt, 0, b.mcntRead, 0, 4);
+      moverReadPending = true;
+      device.queue.submit([enc.finish()]);
+      
+      const localReadBuf = b.mcntRead; 
+      const activeRunId = currentRunId; // Capture the lock ID
+      
+      device.queue.onSubmittedWorkDone().then(() => {
+        if (activeRunId !== currentRunId) { moverReadPending = false; return; } // Safely abort if reset
+        
+        localReadBuf.mapAsync(GPUMapMode.READ).then(() => {
+          if (activeRunId !== currentRunId) { localReadBuf.unmap(); moverReadPending = false; return; }
+          const movers = new Int32Array(localReadBuf.getMappedRange())[0];
+          localReadBuf.unmap();
+          if (frameCount > 1) { moverCount = movers; totalSaved += (N - movers); }
+          moverReadPending = false;
+        }).catch(() => { moverReadPending = false; });
+      });
+    } else {
+      device.queue.submit([enc.finish()]);
+    }*/
+    device.queue.submit([enc.finish()]);
+
+    if (frameCount % 60 === 0) {
+      document.getElementById('m-fps').textContent = "MAX (Telemetry Off)";
+      document.getElementById('m-movers').textContent = "Computing...";
+    } 
+
+    topoMs = performance.now() - t0;
+    topoHist.push(topoMs);
+    if (topoHist.length > 300) topoHist.shift();
+
+    if (frameCount % 5 === 0) {
+      document.getElementById('m-n').textContent      = N.toLocaleString();
+      document.getElementById('m-b').textContent      = BUCKETS.toLocaleString();
+      document.getElementById('m-topo').textContent   = topoMs.toFixed(2) + ' ms';
+      document.getElementById('m-render').textContent = `${(N/1e3).toFixed(0)}K pts`;
+    
+    // Set these as static since we aren't reading back from the GPU anymore
+      document.getElementById('m-fps').textContent    = fps.toFixed(0) + " (No Stall)";
+      document.getElementById('m-movers').textContent = "Async Mode";
+      document.getElementById('m-saved').textContent  = "O(N) Active";
+    
+      drawGraph();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+
+  document.getElementById('n-slider').addEventListener('change', (e) => {
+    N = N_OPTIONS[parseInt(e.target.value)-1];
+    document.getElementById('n-val').textContent = N >= 1000000 ? '1M' : (N/1000).toFixed(0)+'K';
+    initBuffers();
+  });
+
+  const btnMode = document.getElementById('btn-mode');
+  btnMode.addEventListener('click', () => {
+    useCoherence = !useCoherence;
+    btnMode.textContent = useCoherence ? 'Mode: Temporal Coherence ✓' : 'Mode: Full Rebuild (compare)';
+    btnMode.classList.toggle('active', !useCoherence);
+    totalSaved = 0;
+  });
+
+  const btnBoids = document.getElementById('btn-boids');
+  const btnCrowd = document.getElementById('btn-crowd');
+  const btnPred  = document.getElementById('btn-predator');
+
+  function setScenario(s, btn) {
+    currentScenario = s;
+    btnBoids.classList.remove('active'); btnCrowd.classList.remove('active'); btnPred.classList.remove('active');
+    btn.classList.add('active');
+    initBuffers(); 
+  }
+
+  btnBoids.addEventListener('click', () => setScenario(0, btnBoids));
+  btnCrowd.addEventListener('click', () => setScenario(1, btnCrowd));
+  btnPred.addEventListener('click',  () => setScenario(2, btnPred));
+}
+
+main();
+</script>
+</body>
+</html>
